@@ -1,0 +1,494 @@
+<?php
+
+/**
+ * @file
+ * Provides basic hooks implementations.
+ */
+
+/**
+ * Implements hook_menu().
+ */
+function address_book_menu() {
+	return array(
+		'addressess-book' => array(
+			'title' => 'addressess book',
+			'page callback' => 'drupal_get_form',
+			'page arguments' => array('list_contacts_form', 1),
+			'access callback' => 'user_access',
+			'access arguments' => array('administer addressess-book'),
+			'type' => MENU_NORMAL_ITEM,
+			'menu_name' => 'main-menu',
+			'weight' => 15.
+		),
+		'addressess-book/edit/%' => array(
+			'title' => 'Edit contact',
+			'page callback' => 'drupal_get_form',
+			'page arguments' => array('add_contact_form', 2),
+			'access callback' => 'user_access',
+			'access arguments' => array('administer addressess-book'),
+		),
+		'addressess-book/list' => array(
+    		'title' => 'List',
+    		'type' => MENU_DEFAULT_LOCAL_TASK,
+    		'weight' => 0,
+    		),
+    		'addressess-book/add' => array(
+			'title' => 'Add contact',
+			'page callback' => 'drupal_get_form',
+			'page arguments' => array('add_contact_form'),
+			'access callback' => 'user_access',
+			'access arguments' => array('administer addressess-book'),
+			'type' => MENU_LOCAL_TASK,
+			'weight' => 1,
+		),
+		'addressess-book/contact/%' => array(
+			'title' => 'Contact Page',
+			'page callback' => 'view_contact_page',
+			'page arguments' => array(2),
+			'access callback' => 'user_access',
+			'access arguments' => array('new access method'),
+		),
+	);
+}
+
+/**
+ * Implements hook_permission().
+ */
+function address_book_permission() {
+  return array(
+    'administer addressess-book' => array(
+      'title' => t('Administer my module'),
+      'description' => t('Perform administration tasks for my module.'),
+    ),
+  );
+}
+
+/**
+ * Implements hook_image_default_styles().
+ */
+function address_book_image_default_styles() {
+	$styles = array();
+
+	$styles['contacts_preview'] = array(
+		'label' => 'Contacts preview style',
+		'effects' => array(
+			array(
+				'name' => 'image_scale_and_crop', 
+				'data' => array(
+					'width' => 150,
+					'height' => 100,
+					'upscale' => 1,
+				), 
+			'weight' => 0,
+			),
+		),
+		'name' => 'contacts_preview',
+		'storage' => IMAGE_STORAGE_NORMAL,
+	);
+
+	return $styles;
+}
+
+/**
+ * Function view all contacts
+ */
+function list_contacts_form($form, &$form_state, $del = '') {
+	$form = array();
+	global $user;
+
+	if($del != '') {$del = (int)substr($del, 4);}
+
+	$breadcrumb = array();
+	$breadcrumb[] = l('Home', '<front>');
+	$breadcrumb[] = drupal_get_title();
+	drupal_set_breadcrumb($breadcrumb);
+
+	$vocab = taxonomy_vocabulary_machine_name_load('address_book_category');
+	if(!$vocab) {drupal_set_message(t('Error, taxonomy vocabulary is missing!'),'error'); return $form;}
+	$dropdown_source = taxonomy_get_tree($vocab->vid);
+	$dropdown_array = array('0' => 'Options');
+	foreach ($dropdown_source as $item) {
+		$key = $item->tid;
+		$value = $item->name;
+		$dropdown_array[$key] = $value;
+	}
+	
+
+	$filter_categoryname = 'all';
+	if(!empty($form_state['values']['filter']) && $form_state['values']['filter'] == t('Filter')) {
+		$new_vocab = taxonomy_vocabulary_machine_name_load('address_book_category');
+		$filter_category = taxonomy_term_load($form_state['values']['new_category']);
+		if(empty($filter_category->name)) {$filter_categoryname = 'all';} else {$filter_categoryname = $filter_category->name;}
+	}
+
+	
+	$header = array(
+		array('data' => t('Photo'), 'field' => 'photo'),
+		array('data' => t('Full Name'), 'field' => 'fname'),
+		array('data' => t('Category'), 'field' => 'category'),
+		array('data' => t('Email'), 'field' => 'email'),
+		array('data' => t('Phone'), 'field' => 'phone'),
+		array('data' => t('Birthday'), 'field' => 'birthday_year'),
+		array('data' => t('Links'), 'field' => 'contact_id'),
+	);
+
+	$rows = array();
+	$result = db_select('address_book_contacts', 'abc');
+	$result->fields('abc', array('contact_id', 'photo','fname','lname','email','phone','birthday_day','birthday_month','birthday_year','category'));
+	$result->condition('uid', $user->uid);
+	if($filter_categoryname != 'all') $result->condition('category', $filter_categoryname);
+	$result = $result->extend('PagerDefault')->extend('TableSort');
+	$result->orderByHeader($header);
+	$result->limit(10);
+	$result_rows = $result->execute()->fetchAll();
+
+	$i = 1;
+	foreach ($result_rows as $row) {
+		$rows[$i] = array(
+			($row->photo == 0) ? '' : theme('image_style', array('style_name'=>'contacts_preview', 'path'=>file_load($row->photo)->uri)),
+			l($row->fname . ' ' . $row->lname, 'addressess-book/contact/' . $row->contact_id),
+			$row->category,
+			l($row->email, $row->email),
+			$row->phone,
+			$row->birthday_day . '/' . $row->birthday_month . '/' . $row->birthday_year,
+			l(t('edit'), 'addressess-book/edit/'.$row->contact_id) . ' | '. l(t('remove'), 'addressess-book/del='.$row->contact_id),
+		);
+		if(($del != 0) && ($row->contact_id == $del)) {
+			if($row->photo != 0) $delimage = file_load($row->photo);
+			else $delimage = '';
+		}
+		$i++;
+	}
+
+	if($del != 0) {
+		$delete = db_delete('address_book_contacts')
+			->condition('contact_id', $del)
+			->execute();
+    	if(!empty($delimage)) file_delete($delimage);
+    	drupal_goto('addressess-book');
+	}
+
+	$form['new_category'] = array(
+		'#type' => 'select',
+		'#suffix' => '</div>',
+		'#options' => $dropdown_array,
+		'#key_type' => 'associative',
+		'#default_value' => 0,
+	);
+
+
+	$form['filter_button'] = array(
+		'#type' => 'button',
+		'#value' => t('Filter'),
+		'#suffix' => '</div>',
+		'#name' => 'filter',
+	);
+
+	$form['table'] = array(
+		'#type' => 'tableselect',
+		'#header' => $header,
+		'#options' => $rows,
+		'#js_select' => TRUE,
+		'#empty' => t('No results'),
+	);
+
+
+	$form['#suffix'] = theme('pager');
+
+	return $form;
+}
+
+
+/**
+ * View contact page
+ */
+function view_contact_page($arg) {
+	$output = '';
+	global $user;
+	$result = db_select('address_book_contacts', 'abc');
+	$result->fields('abc', array('photo','fname','lname','email','phone','birthday_day','birthday_month','birthday_year','category','notes'));
+	$result->condition('uid', $user->uid);
+	$result->condition('contact_id', $arg);
+	$result_rows = $result->execute();
+	$rows = array();
+	foreach ($result_rows as $row) {
+		$rows[] = array(
+			'photo' => $row->photo,
+			'fname' => $row->fname,
+			'lname' => $row->lname,
+			'email' => $row->email,
+			'phone'	=> $row->phone,
+			'birthday_day' => $row->birthday_day,
+			'birthday_month' => $row->birthday_month,
+			'birthday_year' => $row->birthday_year,
+			'category' => $row->category,
+			'notes' => str_replace('\n', '<br>', $row->notes), //Не работает.
+		);
+	}
+
+	drupal_set_title($rows[0]['fname'] . ' ' . $rows[0]['lname']);
+
+	$breadcrumb = array();
+	$breadcrumb[] = l('Home', '<front>');
+	$breadcrumb[] = l(t('addressess book'), 'addressess-book');
+	$breadcrumb[] = drupal_get_title();
+	drupal_set_breadcrumb($breadcrumb);
+
+	if($rows) {
+		if(!empty($rows[0]['photo'])) { 
+			$image_path = file_load($rows[0]['photo'])->uri;
+			$output .= '<div style="float: left;">';
+			$output .= theme('image_style', array('style_name'=>'medium', 'path'=>$image_path ));
+			$output .= '</div>';
+		}
+		$output .= '<div style="float: left; clear: right; margin-left: 20px;"><b>Category:</b> ' . $rows[0]['category'];
+		$output .= '<br /><b>Email:</b> ' . '<a href="'.$rows[0]['email'].'">' . $rows[0]['email'] . '</a>';
+		$output .= '<br /><b>Phone:</b> ' . $rows[0]['phone'];
+		$output .= '<br /><b>Birthday:</b> ' . $rows[0]['birthday_day'] .'/'. $rows[0]['birthday_month'] .'/'. $rows[0]['birthday_year'];
+		$output .= '<br />' . $rows[0]['notes'] . '</div>';
+	}
+	return $output;
+}
+
+/**
+ * Add contact
+ */
+function add_contact_form($form, &$form_state, $arg = '') {
+	$form = array();
+	global $user;
+	
+	drupal_set_title(t('Add contact'));
+
+	$breadcrumb = array();
+	$breadcrumb[] = l('Home', '<front>');
+	$breadcrumb[] = l(t('addressess book'), 'addressess-book');
+	$breadcrumb[] = drupal_get_title();
+	drupal_set_breadcrumb($breadcrumb);
+
+	// Получим термины таксономии.
+	$vocab = taxonomy_vocabulary_machine_name_load('address_book_category');
+	if(!$vocab) {drupal_set_message(t('Error, taxonomy vocabulary is missing!'),'error'); return $form;}
+	$dropdown_source = taxonomy_get_tree($vocab->vid);
+	$dropdown_array = array('0' => 'Options');
+	foreach ($dropdown_source as $item) {
+		$key = $item->tid;
+		$value = $item->name;
+		$dropdown_array[$key] = $value;
+	}
+
+	$uedit = array();
+
+	if($arg != '') {
+		$result = db_select('address_book_contacts', 'abc');
+		$result->fields('abc', array('contact_id', 'photo', 'fname', 'lname', 'email', 'phone', 'birthday_day', 'birthday_month', 'birthday_year','category', 'notes'));
+		$result->condition('uid', $user->uid);
+		$result->condition('contact_id', $arg);
+		$result_rows = $result->execute()->fetchAll();
+		foreach ($result_rows as $row) {
+			$terms = taxonomy_get_term_by_name($row->category, 'address_book_category');
+			$term = array_shift($terms);
+			$uedit = array(
+				'contact_id' => $row->contact_id,
+				'fname' => $row->fname,
+				'lname' => $row->lname,
+				'category' => !empty($term->tid) ? $term->tid : 0,
+				'email' => $row->email,
+				'phone' => $row->phone,
+				'birthday_day' => $row->birthday_day,
+				'birthday_month' => $row->birthday_month,
+				'birthday_year' => $row->birthday_year,
+				'notes' => $row->notes,
+			);
+			if($row->photo == 0) {$uedit['photo'] = '';}
+			else {$uedit['photo'] = theme('image_style', array('style_name'=>'contacts_preview', 'path'=>file_load($row->photo)->uri));}
+			$form_state['storage']['fid'] = $row->photo;
+			$form_state['storage']['contact_id'] = $row->contact_id;
+		}
+		drupal_set_title('Edit contact #' . $uedit['contact_id']);
+
+		$breadcrumb = array();
+		$breadcrumb[] = l('Home', '<front>');
+		$breadcrumb[] = l(t('addressess book'), 'addressess-book');
+		$breadcrumb[] = drupal_get_title();
+		drupal_set_breadcrumb($breadcrumb);
+		
+	}
+	else {
+		$uedit = array('contact_id' => '', 'photo' => '', 'fname' => '', 'lname' => '', 'category' => 0, 'email' => '', 'phone' => '', 'birthday_day' => 1, 'birthday_month' => 1, 'birthday_year' => 1989, 'notes' => '');
+	}
+
+	if(!empty($form_state['values']['op']) && $form_state['values']['op'] == t('Delete image')) {
+		$delfile = file_load($form_state['storage']['fid']);
+		file_delete($delfile);
+		$delimage = db_update('address_book_contacts')
+			->fields(array(
+				'photo' => 0,
+			))
+			->condition('contact_id', $form_state['storage']['contact_id'])
+			->execute();
+		drupal_goto('addressess-book/edit/'.$uedit['contact_id']);
+	}
+
+	$form['#prefix'] = $uedit['photo'];
+	
+	if(!empty($uedit['photo'])) {
+		$form['delete_img'] = array(
+			'#type' => 'button',
+			'#value' => t('Delete image'),
+		);
+	}
+
+	if(empty($uedit['photo'])) {
+		$form['add_picture'] = array(
+			'#title' => t('Photo'),
+			'#type' => 'managed_file',
+			'#upload_location' => 'public://contact_imgs',
+			'#name' => 'add_picture',
+			'#description' => 'You can upload images with following extensions: jpg, jpeg, png',
+		);
+	}
+
+	$form['add_first_name'] = array(
+		'#title' => t('First name'),
+		'#type' => 'textfield',
+		'#required' => TRUE,
+		'#default_value' => $uedit['fname'],
+	);
+
+	$form['add_last_name'] = array(
+		'#title' => t('Last name'),
+		'#type' => 'textfield',
+		'#required' => TRUE,
+		'#default_value' => $uedit['lname'],
+	);
+
+	$form['add_email'] = array(
+		'#title' => t('Email'),
+		'#type' => 'textfield',
+		'#default_value' => $uedit['email'],
+	);
+
+	$form['add_phone'] = array(
+		'#title' => t('Phone'),
+		'#type' => 'textfield',
+		'#default_value' => $uedit['phone'],
+	);
+
+	$dateb = $uedit['birthday_year'].'-'.$uedit['birthday_month'].'-'.$uedit['birthday_day'];
+	$timestamp = strtotime($dateb);
+	$form['add_birthday'] = array(
+		'#title' => t('Birthday'),
+		'#type' => 'date',
+		'#default_value' => array(
+			'month' => format_date($timestamp, 'custom', 'n'),
+			'day' => format_date($timestamp, 'custom', 'j'),
+			'year' => format_date($timestamp, 'custom', 'Y'),
+		),
+		'#date_year_range' => '-80:+0',
+	);
+
+	$form['add_category'] = array(
+		'#title' => t('Category'),
+		'#type' => 'select',
+		'#description' => 'Please, choose category of this contact',
+		'#options' => $dropdown_array,
+		'#key_type' => 'associative',
+		'#default_value' => $uedit['category'],
+	);
+
+	$form['add_notes'] = array(
+		'#title' => t('Notes'),
+		'#type' => 'textarea',
+		'#default_value' => $uedit['notes'],
+	);
+
+	if($arg == '') {
+		$form['add_button_create'] = array(
+			'#value' => t('Create'),
+			'#type' => 'submit',
+		);
+	}
+	else {
+		$form['update_button'] = array(
+			'#value' => t('Update'),
+			'#type' => 'submit'
+		);
+	}
+
+	return $form;
+}
+/**
+ * Submiting the contact adding form.
+ */
+function add_contact_form_submit($form, &$form_state) {
+	global $user;
+
+	$vocab = taxonomy_vocabulary_machine_name_load('address_book_category');
+	if($form_state['values']['add_category'] != 0) { $category = taxonomy_term_load($form_state['values']['add_category']); $categoryname = $category->name; }
+	else { $categoryname = ''; }
+
+	if(!empty($form_state['values']['add_button_create'])) {
+		if(!empty($form_state['values']['add_picture'])) {
+			$file = file_load($form_state['values']['add_picture']);
+			$file->status = FILE_STATUS_PERMANENT;
+			file_save($file);
+		}
+		$newvar = db_insert('address_book_contacts')
+			->fields(array(
+				'photo' => $form_state['values']['add_picture'],
+				'fname' => $form_state['values']['add_first_name'],
+				'lname' => $form_state['values']['add_last_name'],
+				'email' => $form_state['values']['add_email'],
+				'phone' => $form_state['values']['add_phone'],
+				'birthday_day' => $form_state['values']['add_birthday']['day'],
+				'birthday_month' => $form_state['values']['add_birthday']['month'],
+				'birthday_year' => $form_state['values']['add_birthday']['year'],
+				'category' => $categoryname,
+				'notes' => $form_state['values']['add_notes'],
+				'uid' => $user->uid,
+			))
+			->execute();
+			$path_new = array(
+			'source' => 'addressess-book/contact/'.$newvar,
+			'alias' => 'addressess-book/contact/'.mb_strtolower($form_state['values']['add_first_name'] . '-' . $form_state['values']['add_last_name']),
+		);
+		path_save($path_new);
+	} 
+	if(!empty($form_state['values']['update_button'])) {
+		if(!empty($form_state['values']['add_picture'])) $form_state['storage']['fid'] = $form_state['values']['add_picture'];
+		$newvar = db_update('address_book_contacts')
+			->fields(array(
+				'photo' => $form_state['storage']['fid'],
+				'fname' => $form_state['values']['add_first_name'],
+				'lname' => $form_state['values']['add_last_name'],
+				'email' => $form_state['values']['add_email'],
+				'phone' => $form_state['values']['add_phone'],
+				'birthday_day' => $form_state['values']['add_birthday']['day'],
+				'birthday_month' => $form_state['values']['add_birthday']['month'],
+				'birthday_year' => $form_state['values']['add_birthday']['year'],
+				'category' => $categoryname,
+				'notes' => $form_state['values']['add_notes'],
+			))
+			->condition('contact_id', $form_state['storage']['contact_id'])
+			->execute();
+			$path_new = array(
+			'source' => 'addressess-book/contact/'.$newvar,
+			'alias' => 'addressess-book/contact/'.mb_strtolower($form_state['values']['add_first_name'] . '-' . $form_state['values']['add_last_name']),
+		);
+		path_save($path_new);
+	}
+
+	drupal_set_message(t('Your contact has been saved.'));
+}
+function check_name_by_id($id) {
+	global $user;
+
+	$result = db_select('address_book_contacts', 'abc');
+	$result->fields('abc', array('contact_id', 'fname', 'lname'));
+	$result->condition('uid', $user->uid);
+	$result->condition('contact_id', $id);
+	$result_rows = $result->execute();
+	foreach ($result_rows as $row) {
+		return $row->fname.' '.$row->lname;
+	}
+}

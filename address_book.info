@@ -1,0 +1,6 @@
+name = "Address Book"
+description = "Module provides you possibility to create address book with your contacts and manage it."
+version = 7.x-1.0
+core = 7.x
+dependencies[] = date
+dependencies[] = pathauto

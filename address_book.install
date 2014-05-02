@@ -1,0 +1,144 @@
+<?php
+/**
+ * Implements hook_schema().
+ */
+function address_book_schema() {
+	return array(
+		'address_book_contacts' => array(
+			'description' => t('This table stores all contacts'),
+			'fields' => array(
+				'contact_id' => array(
+					'description' => 'Primary Key',
+					'type' => 'serial',
+					'unsigned' => 'TRUE',
+				),
+				'photo' => array(
+					'description' => 'fid of Photo',
+					'type' => 'int',
+					'size' => 'medium',
+					'unsigned' => TRUE,
+					'default' => 0,
+				),
+				'fname' => array(
+					'description' => 'First name',
+					'type' => 'varchar',
+					'length' => 64,
+					'not null' => TRUE,
+					'default' => '',
+				),
+				'lname' => array(
+					'description' => 'Last name',
+					'type' => 'varchar',
+					'length' => 64,
+					'default' => '',
+				),
+				'email' => array(
+					'description' => 'Email',
+					'type' => 'varchar',
+					'length' => 64,
+					'default' => '',
+				),
+				'phone' => array(
+					'description' => 'Phone number',
+					'type' => 'varchar',
+					'length' => 32,
+					'default' => '',
+				),
+				'birthday_day' => array(
+					'description' => 'Birthday day',
+					'type' => 'int',
+					'size' => 'medium',
+					'default' => 0,
+					'unsigned' => TRUE,
+				),
+				'birthday_month' => array(
+					'description' => 'Birthday month',
+					'type' => 'int',
+					'size' => 'medium',
+					'default' => 0,
+					'unsigned' => TRUE,
+				),
+				'birthday_year' => array(
+					'description' => 'Birthday year',
+					'type' => 'int',
+					'size' => 'medium',
+					'default' => 0,
+					'unsigned' => TRUE,
+				),
+				'category' => array(
+					'description' => 'Contact category',
+					'type' => 'varchar',
+					'length' => 128,
+					'default' => '',
+				),
+				'notes' => array(
+					'description' => 'Some notes',
+					'type' => 'text',
+					'size' => 'medium',
+				),
+				'uid' => array(
+					'description' => 'Author\'s uid',
+					'type' => 'int',
+					'size' => 'medium',
+					'unsigned' => TRUE,
+					'default' => 0,
+				),
+			),
+			'primary key' => array('contact_id'),
+		),
+	);
+}
+
+/**
+ * Implements hook_install().
+ */
+function address_book_install() {
+	$vocab = taxonomy_vocabulary_machine_name_load('address_book_category');
+
+	// Если его нет - создаем.
+	if($vocab != NULL) {
+		$vid = $vocab->vid;
+	}
+	else {
+		$vocab = array(
+			'name' => t('Category'),
+			'machine_name' => 'address_book_category',
+			'description' => t('Stores all contact\'s categories.'),
+			'hierarchy' => 1,
+			'module' => 'address_book',
+			'weight' => 1,
+		);
+		$vocab = (object) $vocab;
+		taxonomy_vocabulary_save($vocab);
+		$vid = $vocab->vid;
+	}
+
+	// Заполняем полями.
+	$term = (object) array(
+		'name' => 'Family',
+		'description' => 'Your family group',
+		'vid' => $vid,
+	);
+	taxonomy_term_save($term);
+	$term = (object) array(
+		'name' => 'Coworkers',
+		'description' => 'Your friends group',
+		'vid' => $vid,
+	);
+	taxonomy_term_save($term);
+	$term = (object) array(
+		'name' => 'Business',
+		'description' => 'Your work group',
+		'vid' => $vid,
+	);
+	taxonomy_term_save($term);
+	drupal_set_message(t('Taxonomy vocabulary \'Category\' has been created.'));
+}
+
+/**
+ * Implements hook_uninstall().
+ */
+function address_book_uninstall() {
+	$vocab = taxonomy_vocabulary_machine_name_load('address_book_category');
+	taxonomy_vocabulary_delete($vocab->vid);
+}
